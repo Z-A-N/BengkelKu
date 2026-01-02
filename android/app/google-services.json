@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "278669685897",
+    "project_id": "bengkelku-v1",
+    "storage_bucket": "bengkelku-v1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:278669685897:android:0e2611567e3df7ef998258",
+        "android_client_info": {
+          "package_name": "com.bengkelku.bengkelku"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "278669685897-hnvo58fqn8qq0q6nnk82fi55e4l8irrt.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBMI2rSSiXr8wymTy4UUsjGvXF_Nb0bA-Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "278669685897-hnvo58fqn8qq0q6nnk82fi55e4l8irrt.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
