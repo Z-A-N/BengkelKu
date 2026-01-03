@@ -5,9 +5,9 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import '../../models/bengkel_model.dart';
-import '../booking/booking_summary.dart';
-import '../chat/chat_room.dart';
+import 'models/bengkel_model.dart';
+import '../features/booking/booking_summary.dart';
+import '../features/chat/chat_room.dart';
 
 class BengkelDetailPage extends StatefulWidget {
   final Bengkel bengkel;

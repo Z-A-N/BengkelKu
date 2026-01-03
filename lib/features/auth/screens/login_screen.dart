@@ -27,6 +27,7 @@ class _MasukState extends State<Masuk> with SingleTickerProviderStateMixin {
 
   bool _rememberMe = false;
   bool _isLoading = false;
+  bool _emailAuthError = false;
   bool _sembunyikanPassword = true;
 
   String? _emailErrorText;
@@ -65,23 +66,24 @@ class _MasukState extends State<Masuk> with SingleTickerProviderStateMixin {
       curve: Curves.easeInOut,
     );
 
-    _animasiGeser = Tween<Offset>(
-      begin: const Offset(0, 0.2),
-      end: Offset.zero,
-    ).animate(
-      CurvedAnimation(
-        parent: _pengendaliAnimasi,
-        curve: Curves.easeOutCubic,
-      ),
-    );
+    _animasiGeser = Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero)
+        .animate(
+          CurvedAnimation(
+            parent: _pengendaliAnimasi,
+            curve: Curves.easeOutCubic,
+          ),
+        );
 
     _pengendaliAnimasi.forward();
 
     _loadRememberMe();
 
     _emailController.addListener(() {
-      if (_emailErrorText != null && mounted) {
-        setState(() => _emailErrorText = null);
+      if ((_emailErrorText != null || _emailAuthError) && mounted) {
+        setState(() {
+          _emailErrorText = null;
+          _emailAuthError = false;
+        });
       }
     });
 
@@ -258,6 +260,7 @@ class _MasukState extends State<Masuk> with SingleTickerProviderStateMixin {
       _isLoading = true;
       _emailErrorText = null;
       _passwordErrorText = null;
+      _emailAuthError = false;
     });
 
     try {
@@ -280,13 +283,10 @@ class _MasukState extends State<Masuk> with SingleTickerProviderStateMixin {
         _passwordErrorText = null;
 
         switch (e.code) {
-          case "invalid-email":
-            _emailErrorText = "Format email salah";
-            break;
-
           case "user-not-found":
           case "wrong-password":
           case "invalid-credential":
+            _emailErrorText = "";
             _passwordErrorText = "Email atau kata sandi salah";
             break;
 
@@ -325,7 +325,10 @@ class _MasukState extends State<Masuk> with SingleTickerProviderStateMixin {
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: 500.w),
                 child: SingleChildScrollView(
-                  padding: EdgeInsets.symmetric(horizontal: 28.w, vertical: 25.h),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 28.w,
+                    vertical: 25.h,
+                  ),
                   child: Form(
                     key: _formKey,
                     child: Column(
@@ -382,7 +385,10 @@ class _MasukState extends State<Masuk> with SingleTickerProviderStateMixin {
                           alignment: Alignment.centerLeft,
                           child: Text(
                             "Masukkan email dan kata sandi untuk masuk",
-                            style: TextStyle(color: Colors.black54, fontSize: 15.sp),
+                            style: TextStyle(
+                              color: Colors.black54,
+                              fontSize: 15.sp,
+                            ),
                           ),
                         ),
 
@@ -394,8 +400,11 @@ class _MasukState extends State<Masuk> with SingleTickerProviderStateMixin {
                           textInputAction: TextInputAction.next,
                           autovalidateMode: AutovalidateMode.onUserInteraction,
                           validator: (v) {
-                            if (v == null || v.isEmpty) return "Email wajib diisi";
-                            if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(v.trim())) {
+                            if (v == null || v.isEmpty)
+                              return "Email wajib diisi";
+                            if (!RegExp(
+                              r'^[^@]+@[^@]+\.[^@]+$',
+                            ).hasMatch(v.trim())) {
                               return "Email tidak valid";
                             }
                             return null;
@@ -408,6 +417,11 @@ class _MasukState extends State<Masuk> with SingleTickerProviderStateMixin {
                             ),
                             prefixIcon: const Icon(Icons.email_outlined),
                             errorText: _emailErrorText,
+                            errorStyle:
+                                (_emailErrorText != null &&
+                                    _emailErrorText!.trim().isEmpty)
+                                ? const TextStyle(fontSize: 0, height: 0)
+                                : null,
                           ),
                         ),
 
@@ -420,7 +434,8 @@ class _MasukState extends State<Masuk> with SingleTickerProviderStateMixin {
                           onFieldSubmitted: (_) => _loginUser(),
                           autovalidateMode: AutovalidateMode.onUserInteraction,
                           validator: (v) {
-                            if (v == null || v.isEmpty) return "Kata sandi wajib diisi";
+                            if (v == null || v.isEmpty)
+                              return "Kata sandi wajib diisi";
                             return null;
                           },
                           decoration: InputDecoration(
@@ -458,14 +473,19 @@ class _MasukState extends State<Masuk> with SingleTickerProviderStateMixin {
                                       setState(() => _rememberMe = v ?? false),
                                   activeColor: const Color(0xFFDB0C0C),
                                 ),
-                                Text("Ingat saya", style: TextStyle(fontSize: 14.sp)),
+                                Text(
+                                  "Ingat saya",
+                                  style: TextStyle(fontSize: 14.sp),
+                                ),
                               ],
                             ),
                             TextButton(
                               onPressed: () {
                                 Navigator.push(
                                   context,
-                                  MaterialPageRoute(builder: (_) => const LupaKataSandi()),
+                                  MaterialPageRoute(
+                                    builder: (_) => const LupaKataSandi(),
+                                  ),
                                 );
                               },
                               child: Text(
@@ -486,7 +506,9 @@ class _MasukState extends State<Masuk> with SingleTickerProviderStateMixin {
                           width: double.infinity,
                           height: 48.h,
                           child: ElevatedButton(
-                            onPressed: (_isLoading || _isLocked) ? null : _loginUser,
+                            onPressed: (_isLoading || _isLocked)
+                                ? null
+                                : _loginUser,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFFDB0C0C),
                               shape: RoundedRectangleBorder(
@@ -515,12 +537,25 @@ class _MasukState extends State<Masuk> with SingleTickerProviderStateMixin {
 
                         Row(
                           children: [
-                            Expanded(child: Divider(color: Colors.grey[300], thickness: 1)),
+                            Expanded(
+                              child: Divider(
+                                color: Colors.grey[300],
+                                thickness: 1,
+                              ),
+                            ),
                             Padding(
                               padding: EdgeInsets.symmetric(horizontal: 8.w),
-                              child: Text("Atau", style: TextStyle(fontSize: 14.sp)),
+                              child: Text(
+                                "Atau",
+                                style: TextStyle(fontSize: 14.sp),
+                              ),
                             ),
-                            Expanded(child: Divider(color: Colors.grey[300], thickness: 1)),
+                            Expanded(
+                              child: Divider(
+                                color: Colors.grey[300],
+                                thickness: 1,
+                              ),
+                            ),
                           ],
                         ),
 
@@ -543,12 +578,17 @@ class _MasukState extends State<Masuk> with SingleTickerProviderStateMixin {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text("Belum punya akun? ", style: TextStyle(fontSize: 14.sp)),
+                            Text(
+                              "Belum punya akun? ",
+                              style: TextStyle(fontSize: 14.sp),
+                            ),
                             GestureDetector(
                               onTap: () {
                                 Navigator.push(
                                   context,
-                                  MaterialPageRoute(builder: (_) => const Daftar()),
+                                  MaterialPageRoute(
+                                    builder: (_) => const Daftar(),
+                                  ),
                                 );
                               },
                               child: Text(

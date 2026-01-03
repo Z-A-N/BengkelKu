@@ -5,13 +5,15 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:bengkelku/features/auth/services/auth_service.dart';
-import '../../models/bengkel_model.dart';
-import '../bengkel/bengkel_detail.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../../bengkel/models/bengkel_model.dart';
+import '../../bengkel/bengkel_detail.dart';
 import '../profile/profile.dart';
 import '../../widgets/navbar.dart';
 import '../chat/chat.dart';
 import '../riwayat/riwayat.dart';
 import '../auth/screens/login_screen.dart';
+import '../maps/screens/maps_screen.dart';
 
 class HomeDashboard extends StatefulWidget {
   const HomeDashboard({super.key});
@@ -795,48 +797,146 @@ class _HomeDashboardState extends State<HomeDashboard> {
   // =====================================================
 
   Widget _buildMapCard() {
-    return Container(
-      height: 160.h,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18.r),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          Container(
-            color: Colors.grey.shade200,
-            child: const Center(
-              child: Icon(Icons.map_rounded, size: 70, color: Colors.grey),
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const MapsScreen()),
+        );
+      },
+      borderRadius: BorderRadius.circular(18.r),
+      child: Container(
+        height: 160.h,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18.r),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
-          ),
-          Positioned(
-            right: 12.w,
-            bottom: 12.h,
-            child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16.r),
-              ),
-              child: Text(
-                "8 Bengkel Terdekat",
-                style: TextStyle(
-                  color: Colors.redAccent,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12.sp,
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          children: [
+            StreamBuilder<List<Bengkel>>(
+              stream: _bengkelStream,
+              builder: (context, snapshot) {
+                final list = snapshot.data ?? [];
+
+                // tentuin center
+                LatLng center = const LatLng(-6.200000, 106.816666);
+                final valid = list
+                    .where(
+                      (b) =>
+                          !(b.lokasi.latitude == 0 && b.lokasi.longitude == 0),
+                    )
+                    .toList();
+                if (valid.isNotEmpty) {
+                  center = LatLng(
+                    valid.first.lokasi.latitude,
+                    valid.first.lokasi.longitude,
+                  );
+                }
+
+                // marker sedikit aja biar ringan
+                final markers = <Marker>{};
+                for (final b in valid.take(20)) {
+                  markers.add(
+                    Marker(
+                      markerId: MarkerId(b.id),
+                      position: LatLng(b.lokasi.latitude, b.lokasi.longitude),
+                    ),
+                  );
+                }
+
+                return AbsorbPointer(
+                  child: GoogleMap(
+                    initialCameraPosition: CameraPosition(
+                      target: center,
+                      zoom: 12,
+                    ),
+                    markers: markers,
+                    liteModeEnabled: true, // ✅ preview mode (Android)
+                    zoomControlsEnabled: false,
+                    myLocationButtonEnabled: false,
+                    compassEnabled: false,
+                    mapToolbarEnabled: false,
+                  ),
+                );
+              },
+            ),
+
+            // overlay biar lebih cakep
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.center,
+                    colors: [
+                      Colors.black.withOpacity(0.25),
+                      Colors.transparent,
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+
+            // Badge jumlah bengkel
+            Positioned(
+              right: 12.w,
+              bottom: 12.h,
+              child: StreamBuilder<List<Bengkel>>(
+                stream: _bengkelStream,
+                builder: (context, snapshot) {
+                  final count = (snapshot.data ?? []).length;
+                  return Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 10.w,
+                      vertical: 6.h,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16.r),
+                    ),
+                    child: Text(
+                      "$count Bengkel Terdaftar",
+                      style: TextStyle(
+                        color: Colors.redAccent,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12.sp,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            // Hint tap
+            Positioned(
+              left: 12.w,
+              bottom: 12.h,
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.55),
+                  borderRadius: BorderRadius.circular(16.r),
+                ),
+                child: Text(
+                  "Tap untuk buka peta",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12.sp,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

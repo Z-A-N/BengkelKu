@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:confetti/confetti.dart';
 
-import '../../models/bengkel_model.dart';
+import '../../bengkel/models/bengkel_model.dart';
 import 'booking_summary.dart'; // ✅ biar LayananItem kebaca
 import 'booking_code_page.dart';
 

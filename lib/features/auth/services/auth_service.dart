@@ -241,7 +241,10 @@ class AuthService {
       }
       return user;
     } on GoogleSignInException catch (e) {
-      if (e.code == 'canceled') return null;
+      if (e.code == GoogleSignInExceptionCode.canceled ||
+          e.code == GoogleSignInExceptionCode.interrupted) {
+        return null;
+      }
       rethrow;
     }
   }

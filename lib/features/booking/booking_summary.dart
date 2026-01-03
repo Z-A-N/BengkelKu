@@ -6,7 +6,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../../models/bengkel_model.dart';
+import '../../bengkel/models/bengkel_model.dart';
 import 'booking_success.dart';
 
 /// 1 item layanan yang dipilih user
