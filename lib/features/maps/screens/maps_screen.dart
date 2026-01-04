@@ -24,10 +24,14 @@ class MapsScreen extends StatefulWidget {
 }
 
 class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
-  // ===== STYLE =====
+  // ===== THEME (modern, tetap kuning-merah) =====
   static const Color _red = Color(0xFFDB0C0C);
-  static const Color _bg = Color(0xFFF5F5F5);
+  static const Color _yellow = Color(0xFFFFD740);
+  static const Color _yellowSoft = Color(0xFFFFF3CD);
+  static const Color _bg = Color(0xFFF6F7F9);
   static const LatLng _fallbackCenter = LatLng(-6.200000, 106.816666);
+
+  static final Color _redLine = _red.withOpacity(0.18);
 
   static const String _directionsApiKey = "YOUR_DIRECTIONS_API_KEY";
 
@@ -68,11 +72,9 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
   Position? _myPos;
 
   // ===== Bottom panel (snap) =====
-  // ✅ sheet awal dinaikin
-  static const double _sheetInitial = 0.38; // carousel (lebih tinggi)
-  static const double _sheetMid = 0.45; // detail ringkas
-  // ✅ max cuma 0.55
-  static const double _sheetMax = 0.55; // detail (ga keatasan)
+  static const double _sheetInitial = 0.38;
+  static const double _sheetMid = 0.45;
+  static const double _sheetMax = 0.55;
 
   double _sheetExtent = _sheetInitial;
   final DraggableScrollableController _sheetController =
@@ -100,7 +102,7 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
 
     _searchController = TextEditingController();
     _searchFocus = FocusNode();
-    _carouselController = PageController(viewportFraction: 0.88);
+    _carouselController = PageController(viewportFraction: 0.90);
 
     if (widget.focusBengkel != null) {
       _selected = widget.focusBengkel;
@@ -308,23 +310,25 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
     }
   }
 
-  // ===== Snap helper (lebih "nempel") =====
+  // ===== Snap helper (lebih smooth, ga maksa) =====
   void _scheduleSnap() {
     if (_snapping) return;
     _snapTimer?.cancel();
-    _snapTimer = Timer(const Duration(milliseconds: 110), () async {
+    _snapTimer = Timer(const Duration(milliseconds: 140), () async {
       if (!mounted) return;
       if (!_sheetController.isAttached) return;
 
       final target = _snapTarget(_sheetExtent);
-      if ((target - _sheetExtent).abs() < 0.015) return;
+
+      // ✅ threshold lebih longgar biar ga “nempel robot”
+      if ((target - _sheetExtent).abs() < 0.03) return;
 
       _snapping = true;
       try {
         await _sheetController.animateTo(
           target,
-          duration: const Duration(milliseconds: 210),
-          curve: Curves.easeOutCubic,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOut,
         );
       } catch (_) {
         // ignore
@@ -347,8 +351,8 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
     try {
       await _sheetController.animateTo(
         size.clamp(_sheetInitial, _sheetMax),
-        duration: const Duration(milliseconds: 210),
-        curve: Curves.easeOutCubic,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOut,
       );
     } catch (_) {}
   }
@@ -436,7 +440,6 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
         _routeToId = b.id;
       });
 
-      // naikkan detail (max 0.55 sesuai request)
       _animateSheetTo(_sheetMax);
 
       final bounds = _boundsFromLatLngList(decoded);
@@ -523,442 +526,528 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
     );
   }
 
-  // ===== UI =====
+  // ===== UI (Google Maps style: map mengecil saat sheet naik) =====
   @override
   Widget build(BuildContext context) {
-    final screenH = MediaQuery.of(context).size.height;
-    final double locBtnBottomRaw = (screenH * _sheetExtent) + 10.h;
-    final double locBtnBottom = locBtnBottomRaw.clamp(90.h, screenH - 160.h);
-
     return Scaffold(
       backgroundColor: _bg,
-      body: StreamBuilder<List<Bengkel>>(
-        stream: _bengkelStream,
-        builder: (context, snap) {
-          final all = snap.data ?? [];
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final screenH = constraints.maxHeight;
 
-          final filtered = BengkelSearchService.apply(
-            all: all,
-            query: _query,
-            filters: BengkelFilters(
-              openNow: _filterOpenNow,
-              highRating: _filterHighRating,
-            ),
-            distanceMeters: _myPos != null
-                ? (b) => _distanceMetersTo(b) ?? double.infinity
-                : null,
-          );
+          return StreamBuilder<List<Bengkel>>(
+            stream: _bengkelStream,
+            builder: (context, snap) {
+              final all = snap.data ?? [];
 
-          // Auto select pertama
-          if (filtered.isNotEmpty) {
-            final selIdx = _selected == null
-                ? -1
-                : filtered.indexWhere((x) => x.id == _selected!.id);
+              final filtered = BengkelSearchService.apply(
+                all: all,
+                query: _query,
+                filters: BengkelFilters(
+                  openNow: _filterOpenNow,
+                  highRating: _filterHighRating,
+                ),
+                distanceMeters: _myPos != null
+                    ? (b) => _distanceMetersTo(b) ?? double.infinity
+                    : null,
+              );
 
-            if (_selected == null || selIdx == -1) {
+              // Auto select pertama
+              if (filtered.isNotEmpty) {
+                final selIdx = _selected == null
+                    ? -1
+                    : filtered.indexWhere((x) => x.id == _selected!.id);
+
+                if (_selected == null || selIdx == -1) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    setState(() {
+                      _selected = filtered.first;
+                      _clearRoute();
+                    });
+                    if (_carouselController.hasClients) {
+                      _carouselController.jumpToPage(0);
+                    }
+                  });
+                } else {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    if (!_carouselController.hasClients) return;
+                    final current = (_carouselController.page ?? 0).round();
+                    if (current != selIdx)
+                      _carouselController.jumpToPage(selIdx);
+                  });
+                }
+              }
+
+              final markers = _buildMarkers(filtered);
+
               WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted) return;
-                setState(() {
-                  _selected = filtered.first;
-                  _clearRoute();
-                });
-                if (_carouselController.hasClients) {
-                  _carouselController.jumpToPage(0);
+                if (snap.connectionState != ConnectionState.waiting) {
+                  _moveInitialCameraIfNeeded(filtered);
                 }
               });
-            } else {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted) return;
-                if (!_carouselController.hasClients) return;
-                final current = (_carouselController.page ?? 0).round();
-                if (current != selIdx) _carouselController.jumpToPage(selIdx);
-              });
-            }
-          }
 
-          final markers = _buildMarkers(filtered);
+              // ✅ sheet height dalam pixel → buat “map mengecil”
+              final sheetPx = (screenH * _sheetExtent).clamp(
+                screenH * _sheetInitial,
+                screenH * _sheetMax,
+              );
 
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (snap.connectionState != ConnectionState.waiting) {
-              _moveInitialCameraIfNeeded(filtered);
-            }
-          });
+              // ✅ mode carousel vs detail
+              final bool showCarousel = _sheetExtent < (_sheetMid - 0.015);
 
-          // ✅ mode carousel vs detail
-          final bool showCarousel = _sheetExtent < (_sheetMid - 0.015);
-
-          return Stack(
-            children: [
-              Positioned.fill(
-                child: GoogleMap(
-                  initialCameraPosition: const CameraPosition(
-                    target: _fallbackCenter,
-                    zoom: 11,
-                  ),
-                  markers: markers,
-                  polylines: _polylines,
-                  myLocationEnabled: _locationGranted,
-                  myLocationButtonEnabled: false,
-                  zoomControlsEnabled: false,
-                  compassEnabled: false,
-                  mapToolbarEnabled: false,
-                  onTap: (_) => setState(() {
-                    _selected = null;
-                    _clearRoute();
-                  }),
-                  onMapCreated: (c) async {
-                    if (!_mapController.isCompleted) _mapController.complete(c);
-                    await c.setMapStyle(_mapStyle);
-                  },
-                ),
-              ),
-
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.center,
-                        colors: [
-                          Colors.black.withOpacity(0.25),
-                          Colors.transparent,
-                        ],
+              return Stack(
+                children: [
+                  // =========================
+                  // MAP AREA (MENGECIL)
+                  // =========================
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: sheetPx, // kuncinya!
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.vertical(
+                        bottom: Radius.circular(22.r),
                       ),
-                    ),
-                  ),
-                ),
-              ),
-
-              // search header
-              SafeArea(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 0),
-                  child: MapsSearchHeader(
-                    onBack: () => Navigator.pop(context),
-                    controller: _searchController,
-                    focusNode: _searchFocus,
-                    query: _query,
-                    filters: BengkelFilters(
-                      openNow: _filterOpenNow,
-                      highRating: _filterHighRating,
-                    ),
-                    onQueryChanged: (v) => setState(() {
-                      _query = v;
-                      _selected = null;
-                      _clearRoute();
-                    }),
-                    onClear: () {
-                      setState(() {
-                        _query = "";
-                        _searchController.clear();
-                        _selected = null;
-                        _clearRoute();
-                      });
-                      FocusScope.of(context).unfocus();
-                    },
-                    onFiltersChanged: (f) => setState(() {
-                      _filterOpenNow = f.openNow;
-                      _filterHighRating = f.highRating;
-                      _selected = null;
-                      _clearRoute();
-                    }),
-                  ),
-                ),
-              ),
-
-              // tombol lokasi
-              Positioned(
-                right: 16.w,
-                bottom: locBtnBottom,
-                child: _CircleBtn(
-                  icon: Icons.my_location_rounded,
-                  onTap: _onTapMyLocation,
-                  accent: true,
-                ),
-              ),
-
-              // bottom panel
-              NotificationListener<DraggableScrollableNotification>(
-                onNotification: (n) {
-                  setState(() => _sheetExtent = n.extent);
-                  if (!_snapping) _scheduleSnap();
-                  return false;
-                },
-                child: DraggableScrollableSheet(
-                  controller: _sheetController,
-                  initialChildSize: _sheetInitial,
-                  minChildSize: _sheetInitial,
-                  maxChildSize: _sheetMax,
-                  builder: (context, scrollController) {
-                    final safeBottom = MediaQuery.of(context).padding.bottom;
-                    final selected = _selected;
-
-                    return Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.vertical(
-                          top: Radius.circular(22.r),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.14),
-                            blurRadius: 24,
-                            offset: const Offset(0, -8),
-                          ),
-                        ],
-                      ),
-                      child: ListView(
-                        controller: scrollController,
-                        padding: EdgeInsets.fromLTRB(
-                          0,
-                          10.h,
-                          0,
-                          16.h + safeBottom + 10.h,
-                        ),
+                      child: Stack(
                         children: [
-                          // handle row + chevron down (ketika detail mode)
-                          Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 16.w),
-                            child: Row(
-                              children: [
-                                const Spacer(),
-                                Container(
-                                  width: 44.w,
-                                  height: 4.h,
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[300],
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                ),
-                                const Spacer(),
-                                // ✅ chevron-down buat balik ke carousel
-                                AnimatedOpacity(
-                                  duration: const Duration(milliseconds: 160),
-                                  opacity: showCarousel ? 0.0 : 1.0,
-                                  child: IgnorePointer(
-                                    ignoring: showCarousel,
-                                    child: InkWell(
-                                      borderRadius: BorderRadius.circular(999),
-                                      onTap: () =>
-                                          _animateSheetTo(_sheetInitial),
-                                      child: Padding(
-                                        padding: EdgeInsets.all(6.w),
-                                        child: Icon(
-                                          Icons.keyboard_arrow_down_rounded,
-                                          size: 22.sp,
-                                          color: Colors.grey[800],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
+                          Positioned.fill(
+                            child: GoogleMap(
+                              initialCameraPosition: const CameraPosition(
+                                target: _fallbackCenter,
+                                zoom: 11,
+                              ),
+                              markers: markers,
+                              polylines: _polylines,
+                              myLocationEnabled: _locationGranted,
+                              myLocationButtonEnabled: false,
+                              zoomControlsEnabled: false,
+                              compassEnabled: false,
+                              mapToolbarEnabled: false,
+                              onTap: (_) => setState(() {
+                                _selected = null;
+                                _clearRoute();
+                              }),
+                              onMapCreated: (c) async {
+                                if (!_mapController.isCompleted) {
+                                  _mapController.complete(c);
+                                }
+                                await c.setMapStyle(_mapStyle);
+                              },
                             ),
                           ),
-                          SizedBox(height: 10.h),
 
-                          // ✅ header "Bengkel terdekat" + hasil: tampil HANYA saat carousel
-                          AnimatedCrossFade(
-                            duration: const Duration(milliseconds: 180),
-                            crossFadeState: showCarousel
-                                ? CrossFadeState.showFirst
-                                : CrossFadeState.showSecond,
-                            firstChild: Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 16.w),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      _myPos != null
-                                          ? "Bengkel terdekat"
-                                          : "Rekomendasi bengkel",
-                                      style: TextStyle(
-                                        fontSize: 15.sp,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
+                          // overlay gradient (soft)
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.bottomCenter,
+                                    end: Alignment.center,
+                                    colors: [
+                                      Colors.black.withOpacity(0.16),
+                                      Colors.transparent,
+                                    ],
                                   ),
-                                  Container(
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: 10.w,
-                                      vertical: 6.h,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFFFF3CD),
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: Text(
-                                      "${filtered.length} hasil",
-                                      style: TextStyle(
-                                        fontSize: 11.sp,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          // search header (di map area)
+                          SafeArea(
+                            child: Padding(
+                              padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 0),
+                              child: MapsSearchHeader(
+                                onBack: () => Navigator.pop(context),
+                                controller: _searchController,
+                                focusNode: _searchFocus,
+                                query: _query,
+                                filters: BengkelFilters(
+                                  openNow: _filterOpenNow,
+                                  highRating: _filterHighRating,
+                                ),
+                                onQueryChanged: (v) => setState(() {
+                                  _query = v;
+                                  _selected = null;
+                                  _clearRoute();
+                                }),
+                                onClear: () {
+                                  setState(() {
+                                    _query = "";
+                                    _searchController.clear();
+                                    _selected = null;
+                                    _clearRoute();
+                                  });
+                                  FocusScope.of(context).unfocus();
+                                },
+                                onFiltersChanged: (f) => setState(() {
+                                  _filterOpenNow = f.openNow;
+                                  _filterHighRating = f.highRating;
+                                  _selected = null;
+                                  _clearRoute();
+                                }),
+                              ),
+                            ),
+                          ),
+
+                          // tombol lokasi (nempel di bawah map area)
+                          Positioned(
+                            right: 16.w,
+                            bottom: 16.h,
+                            child: _CircleBtn(
+                              icon: Icons.my_location_rounded,
+                              onTap: _onTapMyLocation,
+                              accent: true,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // =========================
+                  // BOTTOM SHEET
+                  // =========================
+                  Positioned.fill(
+                    child: NotificationListener<DraggableScrollableNotification>(
+                      onNotification: (n) {
+                        // update extent → map ikut resize
+                        setState(() => _sheetExtent = n.extent);
+                        if (!_snapping) _scheduleSnap();
+                        return false;
+                      },
+                      child: DraggableScrollableSheet(
+                        controller: _sheetController,
+                        initialChildSize: _sheetInitial,
+                        minChildSize: _sheetInitial,
+                        maxChildSize: _sheetMax,
+                        builder: (context, scrollController) {
+                          final safeBottom = MediaQuery.of(
+                            context,
+                          ).padding.bottom;
+                          final selected = _selected;
+
+                          return ClipRRect(
+                            borderRadius: BorderRadius.vertical(
+                              top: Radius.circular(22.r),
+                            ),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.vertical(
+                                  top: Radius.circular(22.r),
+                                ),
+                                border: Border(
+                                  top: BorderSide(color: _redLine, width: 1),
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.10),
+                                    blurRadius: 22,
+                                    offset: const Offset(0, -10),
                                   ),
                                 ],
                               ),
-                            ),
-                            secondChild: const SizedBox.shrink(),
-                          ),
-                          SizedBox(height: showCarousel ? 10.h : 6.h),
-
-                          if (filtered.isEmpty)
-                            Padding(
-                              padding: EdgeInsets.only(top: 6.h),
-                              child: Center(
-                                child: Text(
-                                  "Tidak ada bengkel yang cocok.\nCoba ubah kata kunci / filter.",
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 13.sp,
-                                    color: Colors.grey[700],
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                              child: ListView(
+                                controller: scrollController,
+                                padding: EdgeInsets.fromLTRB(
+                                  0,
+                                  10.h,
+                                  0,
+                                  16.h + safeBottom + 10.h,
                                 ),
-                              ),
-                            )
-                          else
-                            AnimatedCrossFade(
-                              duration: const Duration(milliseconds: 200),
-                              crossFadeState: showCarousel
-                                  ? CrossFadeState.showFirst
-                                  : CrossFadeState.showSecond,
-                              firstChild: Column(
                                 children: [
-                                  SizedBox(
-                                    height: 150.h,
-                                    child: PageView.builder(
-                                      controller: _carouselController,
-                                      itemCount: filtered.length,
-                                      onPageChanged: (i) async {
-                                        final b = filtered[i];
-                                        setState(() {
-                                          _selected = b;
-                                          _clearRoute();
-                                        });
-
-                                        if (_mapController.isCompleted) {
-                                          final c = await _mapController.future;
-                                          await c.animateCamera(
-                                            CameraUpdate.newCameraPosition(
-                                              CameraPosition(
-                                                target: LatLng(b.lat, b.lng),
-                                                zoom: 15,
+                                  // handle row + chevron down (ketika detail mode)
+                                  Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 16.w,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Spacer(),
+                                        Container(
+                                          width: 44.w,
+                                          height: 4.h,
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withOpacity(
+                                              0.10,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        AnimatedOpacity(
+                                          duration: const Duration(
+                                            milliseconds: 160,
+                                          ),
+                                          opacity: showCarousel ? 0.0 : 1.0,
+                                          child: IgnorePointer(
+                                            ignoring: showCarousel,
+                                            child: InkWell(
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                              onTap: () => _animateSheetTo(
+                                                _sheetInitial,
+                                              ),
+                                              child: Padding(
+                                                padding: EdgeInsets.all(6.w),
+                                                child: Icon(
+                                                  Icons
+                                                      .keyboard_arrow_down_rounded,
+                                                  size: 22.sp,
+                                                  color: Colors.grey[850],
+                                                ),
                                               ),
                                             ),
-                                          );
-                                        }
-                                      },
-                                      itemBuilder: (context, i) {
-                                        final b = filtered[i];
-                                        final isActive = selected?.id == b.id;
-
-                                        return Padding(
-                                          padding: EdgeInsets.only(
-                                            left: i == 0 ? 16.w : 8.w,
-                                            right: i == filtered.length - 1
-                                                ? 16.w
-                                                : 8.w,
                                           ),
-                                          child: _BengkelCarouselCard(
-                                            bengkel: b,
-                                            distanceText: _prettyDistance(b),
-                                            active: isActive,
-                                            onTap: () async {
-                                              setState(() {
-                                                _selected = b;
-                                                _clearRoute();
-                                              });
-                                              _animateSheetTo(_sheetMid);
-
-                                              if (_mapController.isCompleted) {
-                                                final c =
-                                                    await _mapController.future;
-                                                await c.animateCamera(
-                                                  CameraUpdate.newCameraPosition(
-                                                    CameraPosition(
-                                                      target: LatLng(
-                                                        b.lat,
-                                                        b.lng,
-                                                      ),
-                                                      zoom: 15,
-                                                    ),
-                                                  ),
-                                                );
-                                              }
-                                            },
-                                          ),
-                                        );
-                                      },
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  Padding(
-                                    padding: EdgeInsets.fromLTRB(
-                                      16.w,
-                                      8.h,
-                                      16.w,
-                                      0,
-                                    ),
-                                    child: Text(
-                                      "Geser samping untuk pilih • Tarik ke atas untuk detail",
-                                      style: TextStyle(
-                                        fontSize: 11.sp,
-                                        color: Colors.grey[700],
-                                        fontWeight: FontWeight.w600,
+                                  SizedBox(height: 10.h),
+
+                                  // header (hanya saat carousel)
+                                  AnimatedCrossFade(
+                                    duration: const Duration(milliseconds: 180),
+                                    crossFadeState: showCarousel
+                                        ? CrossFadeState.showFirst
+                                        : CrossFadeState.showSecond,
+                                    firstChild: Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 16.w,
                                       ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              secondChild: Padding(
-                                padding: EdgeInsets.fromLTRB(
-                                  16.w,
-                                  4.h,
-                                  16.w,
-                                  0,
-                                ),
-                                child: selected == null
-                                    ? const SizedBox.shrink()
-                                    : Column(
+                                      child: Row(
                                         children: [
-                                          _BengkelDetailSection(
-                                            bengkel: selected,
-                                            distanceText: _prettyDistance(
-                                              selected,
+                                          Expanded(
+                                            child: Text(
+                                              _myPos != null
+                                                  ? "Bengkel terdekat"
+                                                  : "Rekomendasi bengkel",
+                                              style: TextStyle(
+                                                fontSize: 15.sp,
+                                                fontWeight: FontWeight.w800,
+                                              ),
                                             ),
-                                            loadingRoute: _loadingRoute,
-                                            routeDistance: _routeDistance,
-                                            routeDuration: _routeDuration,
-                                            routeActive:
-                                                _routeToId == selected.id &&
-                                                _polylines.isNotEmpty,
-                                            onBooking: () =>
-                                                _goBooking(selected),
-                                            onEmergency: () =>
-                                                _goEmergency(selected),
-                                            onDirections: _drawRouteToSelected,
                                           ),
-                                          SizedBox(height: 8.h),
-                                          Text(
-                                            "Tarik ke bawah untuk ganti bengkel",
-                                            style: TextStyle(
-                                              fontSize: 11.sp,
-                                              color: Colors.grey[700],
-                                              fontWeight: FontWeight.w700,
+                                          Container(
+                                            padding: EdgeInsets.symmetric(
+                                              horizontal: 10.w,
+                                              vertical: 6.h,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: _yellowSoft.withOpacity(
+                                                0.75,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                              border: Border.all(
+                                                color: Colors.black.withOpacity(
+                                                  0.06,
+                                                ),
+                                              ),
+                                            ),
+                                            child: Text(
+                                              "${filtered.length} hasil",
+                                              style: TextStyle(
+                                                fontSize: 11.sp,
+                                                fontWeight: FontWeight.w800,
+                                              ),
                                             ),
                                           ),
                                         ],
                                       ),
+                                    ),
+                                    secondChild: const SizedBox.shrink(),
+                                  ),
+                                  SizedBox(height: showCarousel ? 10.h : 6.h),
+
+                                  if (filtered.isEmpty)
+                                    Padding(
+                                      padding: EdgeInsets.only(top: 6.h),
+                                      child: Center(
+                                        child: Text(
+                                          "Tidak ada bengkel yang cocok.\nCoba ubah kata kunci / filter.",
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            fontSize: 13.sp,
+                                            color: Colors.grey[700],
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    AnimatedCrossFade(
+                                      duration: const Duration(
+                                        milliseconds: 200,
+                                      ),
+                                      crossFadeState: showCarousel
+                                          ? CrossFadeState.showFirst
+                                          : CrossFadeState.showSecond,
+                                      firstChild: Column(
+                                        children: [
+                                          SizedBox(
+                                            height: 156.h,
+                                            child: PageView.builder(
+                                              controller: _carouselController,
+                                              itemCount: filtered.length,
+                                              onPageChanged: (i) async {
+                                                final b = filtered[i];
+                                                setState(() {
+                                                  _selected = b;
+                                                  _clearRoute();
+                                                });
+
+                                                if (_mapController
+                                                    .isCompleted) {
+                                                  final c = await _mapController
+                                                      .future;
+                                                  await c.animateCamera(
+                                                    CameraUpdate.newCameraPosition(
+                                                      CameraPosition(
+                                                        target: LatLng(
+                                                          b.lat,
+                                                          b.lng,
+                                                        ),
+                                                        zoom: 15,
+                                                      ),
+                                                    ),
+                                                  );
+                                                }
+                                              },
+                                              itemBuilder: (context, i) {
+                                                final b = filtered[i];
+                                                final isActive =
+                                                    selected?.id == b.id;
+
+                                                return Padding(
+                                                  padding: EdgeInsets.only(
+                                                    left: i == 0 ? 16.w : 8.w,
+                                                    right:
+                                                        i == filtered.length - 1
+                                                        ? 16.w
+                                                        : 8.w,
+                                                  ),
+                                                  child: _BengkelCarouselCard(
+                                                    bengkel: b,
+                                                    distanceText:
+                                                        _prettyDistance(b),
+                                                    active: isActive,
+                                                    onTap: () async {
+                                                      setState(() {
+                                                        _selected = b;
+                                                        _clearRoute();
+                                                      });
+                                                      _animateSheetTo(
+                                                        _sheetMid,
+                                                      );
+
+                                                      if (_mapController
+                                                          .isCompleted) {
+                                                        final c =
+                                                            await _mapController
+                                                                .future;
+                                                        await c.animateCamera(
+                                                          CameraUpdate.newCameraPosition(
+                                                            CameraPosition(
+                                                              target: LatLng(
+                                                                b.lat,
+                                                                b.lng,
+                                                              ),
+                                                              zoom: 15,
+                                                            ),
+                                                          ),
+                                                        );
+                                                      }
+                                                    },
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                          Padding(
+                                            padding: EdgeInsets.fromLTRB(
+                                              16.w,
+                                              8.h,
+                                              16.w,
+                                              0,
+                                            ),
+                                            child: Text(
+                                              "Geser samping untuk pilih • Tarik ke atas untuk detail",
+                                              style: TextStyle(
+                                                fontSize: 11.sp,
+                                                color: Colors.grey[700],
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                          SizedBox(height: 8.h),
+                                        ],
+                                      ),
+                                      secondChild: Padding(
+                                        padding: EdgeInsets.fromLTRB(
+                                          16.w,
+                                          4.h,
+                                          16.w,
+                                          0,
+                                        ),
+                                        child: selected == null
+                                            ? const SizedBox.shrink()
+                                            : Column(
+                                                children: [
+                                                  _BengkelDetailSection(
+                                                    bengkel: selected,
+                                                    distanceText:
+                                                        _prettyDistance(
+                                                          selected,
+                                                        ),
+                                                    loadingRoute: _loadingRoute,
+                                                    routeDistance:
+                                                        _routeDistance,
+                                                    routeDuration:
+                                                        _routeDuration,
+                                                    routeActive:
+                                                        _routeToId ==
+                                                            selected.id &&
+                                                        _polylines.isNotEmpty,
+                                                    onBooking: () =>
+                                                        _goBooking(selected),
+                                                    onEmergency: () =>
+                                                        _goEmergency(selected),
+                                                    onDirections:
+                                                        _drawRouteToSelected,
+                                                  ),
+                                                  SizedBox(height: 8.h),
+                                                  Text(
+                                                    "Tarik ke bawah untuk ganti bengkel",
+                                                    style: TextStyle(
+                                                      fontSize: 11.sp,
+                                                      color: Colors.grey[700],
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                      ),
+                                    ),
+                                ],
                               ),
                             ),
-                        ],
+                          );
+                        },
                       ),
-                    );
-                  },
-                ),
-              ),
-            ],
+                    ),
+                  ),
+                ],
+              );
+            },
           );
         },
       ),
@@ -982,28 +1071,48 @@ class _CircleBtn extends StatelessWidget {
   });
 
   static const Color _red = Color(0xFFDB0C0C);
+  static const Color _yellow = Color(0xFFFFD740);
 
   @override
   Widget build(BuildContext context) {
+    final ring = accent ? _yellow.withOpacity(0.92) : Colors.white;
+
     return Material(
-      color: Colors.white,
-      shape: const CircleBorder(),
+      color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         customBorder: const CircleBorder(),
         child: Container(
-          padding: EdgeInsets.all(10.w),
+          padding: EdgeInsets.all(2.w),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
+            color: ring,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.10),
+                color: Colors.black.withOpacity(0.08),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
             ],
           ),
-          child: Icon(icon, size: 20.sp, color: accent ? _red : Colors.black87),
+          child: Container(
+            padding: EdgeInsets.all(10.w),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white,
+              border: Border.all(
+                color: accent
+                    ? _red.withOpacity(0.18)
+                    : Colors.black.withOpacity(0.06),
+                width: 1,
+              ),
+            ),
+            child: Icon(
+              icon,
+              size: 20.sp,
+              color: accent ? _red : Colors.black87,
+            ),
+          ),
         ),
       ),
     );
@@ -1024,135 +1133,166 @@ class _BengkelCarouselCard extends StatelessWidget {
   });
 
   static const Color _red = Color(0xFFDB0C0C);
+  static const Color _yellow = Color(0xFFFFD740);
+  static const Color _yellowSoft = Color(0xFFFFF3CD);
 
   @override
   Widget build(BuildContext context) {
+    final borderColor = active
+        ? _red.withOpacity(0.18)
+        : Colors.black.withOpacity(0.06);
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(18.r),
         onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: EdgeInsets.all(12.w),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18.r),
-            border: Border.all(
-              color: active ? _red.withOpacity(0.55) : Colors.transparent,
-              width: 1.2,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(active ? 0.10 : 0.06),
-                blurRadius: active ? 14 : 10,
-                offset: const Offset(0, 5),
+        child: AnimatedScale(
+          scale: active ? 1.0 : 0.992,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: EdgeInsets.all(12.w),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [_yellowSoft.withOpacity(0.60), Colors.white],
               ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 42.w,
-                    height: 42.w,
-                    decoration: BoxDecoration(
-                      color: _red.withOpacity(0.10),
-                      borderRadius: BorderRadius.circular(14.r),
-                    ),
-                    child: Icon(
-                      Icons.store_mall_directory_rounded,
-                      color: _red,
-                      size: 22.sp,
-                    ),
-                  ),
-                  SizedBox(width: 10.w),
-                  Expanded(
-                    child: Text(
-                      bengkel.nama,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 13.sp,
-                        fontWeight: FontWeight.w900,
+              borderRadius: BorderRadius.circular(18.r),
+              border: Border.all(color: borderColor, width: 1),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(active ? 0.08 : 0.05),
+                  blurRadius: active ? 14 : 10,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 44.w,
+                      height: 44.w,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14.r),
+                        color: _yellow.withOpacity(0.55),
+                        border: Border.all(
+                          color: Colors.black.withOpacity(0.06),
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.store_mall_directory_rounded,
+                        color: _red,
+                        size: 22.sp,
                       ),
                     ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 8.h),
-              Text(
-                bengkel.alamat,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 11.sp,
-                  color: Colors.grey[700],
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              SizedBox(height: 8.h),
-              Row(
-                children: [
-                  const Icon(
-                    Icons.star_rounded,
-                    color: Colors.orange,
-                    size: 16,
-                  ),
-                  SizedBox(width: 4.w),
-                  Text(
-                    bengkel.rating.toStringAsFixed(1),
-                    style: TextStyle(
-                      fontSize: 11.sp,
-                      fontWeight: FontWeight.w900,
+                    SizedBox(width: 10.w),
+                    Expanded(
+                      child: Text(
+                        bengkel.nama,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13.sp,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ),
-                  ),
-                  SizedBox(width: 10.w),
-                  Text(
-                    distanceText,
-                    style: TextStyle(
-                      fontSize: 11.sp,
-                      fontWeight: FontWeight.w800,
+                  ],
+                ),
+                SizedBox(height: 8.h),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.place_rounded,
+                      size: 14.sp,
                       color: Colors.grey[700],
                     ),
-                  ),
-                  const Spacer(),
-                  Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: 8.w,
-                      vertical: 4.h,
-                    ),
-                    decoration: BoxDecoration(
-                      color: bengkel.buka
-                          ? const Color(0xFFE8F5E9)
-                          : const Color(0xFFFFEBEE),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      bengkel.buka ? "Buka" : "Tutup",
-                      style: TextStyle(
-                        fontSize: 10.sp,
-                        fontWeight: FontWeight.w900,
-                        color: bengkel.buka
-                            ? const Color(0xFF2E7D32)
-                            : const Color(0xFFB71C1C),
+                    SizedBox(width: 4.w),
+                    Expanded(
+                      child: Text(
+                        bengkel.alamat,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.sp,
+                          color: Colors.grey[800],
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 6.h),
-              Text(
-                active ? "Tarik ke atas untuk detail" : "Tap untuk pilih",
-                style: TextStyle(
-                  fontSize: 10.sp,
-                  color: Colors.grey[600],
-                  fontWeight: FontWeight.w700,
+                  ],
                 ),
-              ),
-            ],
+                SizedBox(height: 10.h),
+
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.star_rounded,
+                      color: Colors.orange,
+                      size: 16,
+                    ),
+                    SizedBox(width: 4.w),
+                    Text(
+                      bengkel.rating.toStringAsFixed(1),
+                      style: TextStyle(
+                        fontSize: 11.sp,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    SizedBox(width: 10.w),
+                    Icon(
+                      Icons.near_me_rounded,
+                      size: 14.sp,
+                      color: Colors.grey[700],
+                    ),
+                    SizedBox(width: 4.w),
+                    Text(
+                      distanceText,
+                      style: TextStyle(
+                        fontSize: 11.sp,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.grey[800],
+                      ),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 9.w,
+                        vertical: 4.5.h,
+                      ),
+                      decoration: BoxDecoration(
+                        color: bengkel.buka
+                            ? const Color(0xFFE8F5E9)
+                            : const Color(0xFFFFEBEE),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: bengkel.buka
+                              ? const Color(0xFF2E7D32).withOpacity(0.18)
+                              : const Color(0xFFB71C1C).withOpacity(0.18),
+                        ),
+                      ),
+                      child: Text(
+                        bengkel.buka ? "Buka" : "Tutup",
+                        style: TextStyle(
+                          fontSize: 10.sp,
+                          fontWeight: FontWeight.w800,
+                          color: bengkel.buka
+                              ? const Color(0xFF2E7D32)
+                              : const Color(0xFFB71C1C),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 8.h),
+              ],
+            ),
           ),
         ),
       ),
@@ -1186,28 +1326,68 @@ class _BengkelDetailSection extends StatelessWidget {
   });
 
   static const Color _red = Color(0xFFDB0C0C);
+  static const Color _yellow = Color(0xFFFFD740);
 
   @override
   Widget build(BuildContext context) {
     final hasRouteInfo =
         (routeDistance ?? "").isNotEmpty || (routeDuration ?? "").isNotEmpty;
 
+    Widget statusChip() {
+      final isOpen = bengkel.buka;
+      return Container(
+        padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
+        decoration: BoxDecoration(
+          color: isOpen ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: isOpen
+                ? const Color(0xFF2E7D32).withOpacity(0.18)
+                : const Color(0xFFB71C1C).withOpacity(0.18),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isOpen ? Icons.check_circle_rounded : Icons.cancel_rounded,
+              size: 16.sp,
+              color: isOpen ? const Color(0xFF2E7D32) : const Color(0xFFB71C1C),
+            ),
+            SizedBox(width: 6.w),
+            Text(
+              isOpen ? "Buka" : "Tutup",
+              style: TextStyle(
+                fontSize: 11.sp,
+                fontWeight: FontWeight.w800,
+                color: isOpen
+                    ? const Color(0xFF2E7D32)
+                    : const Color(0xFFB71C1C),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       padding: EdgeInsets.all(14.w),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18.r),
+        border: Border.all(color: _red.withOpacity(0.10)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // title + open/close
           Row(
             children: [
               Expanded(
@@ -1217,29 +1397,36 @@ class _BengkelDetailSection extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 15.sp,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
-              Text(
-                distanceText,
-                style: TextStyle(
-                  fontSize: 12.sp,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.grey[800],
+              statusChip(),
+            ],
+          ),
+          SizedBox(height: 8.h),
+
+          // alamat
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.place_rounded, size: 16.sp, color: Colors.grey[700]),
+              SizedBox(width: 6.w),
+              Expanded(
+                child: Text(
+                  bengkel.alamat,
+                  style: TextStyle(
+                    fontSize: 12.sp,
+                    color: Colors.grey[800],
+                    fontWeight: FontWeight.w600,
+                    height: 1.25,
+                  ),
                 ),
               ),
             ],
           ),
-          SizedBox(height: 6.h),
-          Text(
-            bengkel.alamat,
-            style: TextStyle(
-              fontSize: 12.sp,
-              color: Colors.grey[700],
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+
+          // meta row (rating + distance)
           SizedBox(height: 10.h),
           Row(
             children: [
@@ -1247,32 +1434,57 @@ class _BengkelDetailSection extends StatelessWidget {
               SizedBox(width: 4.w),
               Text(
                 bengkel.rating.toStringAsFixed(1),
-                style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w900),
+                style: TextStyle(
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.black87,
+                ),
               ),
               SizedBox(width: 10.w),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 5.h),
-                decoration: BoxDecoration(
-                  color: bengkel.buka
-                      ? const Color(0xFFE8F5E9)
-                      : const Color(0xFFFFEBEE),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  bengkel.buka ? "Buka" : "Tutup",
-                  style: TextStyle(
-                    fontSize: 11.sp,
-                    fontWeight: FontWeight.w900,
-                    color: bengkel.buka
-                        ? const Color(0xFF2E7D32)
-                        : const Color(0xFFB71C1C),
-                  ),
+              Icon(Icons.near_me_rounded, size: 16.sp, color: Colors.grey[700]),
+              SizedBox(width: 4.w),
+              Text(
+                distanceText,
+                style: TextStyle(
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey[800],
                 ),
               ),
             ],
           ),
-          if ((bengkel.deskripsi).trim().isNotEmpty) ...[
+
+          // route info hanya kalau ada
+          if (hasRouteInfo) ...[
             SizedBox(height: 10.h),
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 8.h),
+              decoration: BoxDecoration(
+                color: _yellow.withOpacity(0.22),
+                borderRadius: BorderRadius.circular(12.r),
+                border: Border.all(color: _red.withOpacity(0.10)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.route_rounded, size: 18.sp, color: _red),
+                  SizedBox(width: 8.w),
+                  Expanded(
+                    child: Text(
+                      "${routeDuration ?? "-"} • ${routeDistance ?? "-"}",
+                      style: TextStyle(
+                        fontSize: 12.sp,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          if ((bengkel.deskripsi).trim().isNotEmpty) ...[
+            SizedBox(height: 12.h),
             Text(
               bengkel.deskripsi,
               maxLines: 4,
@@ -1285,18 +1497,10 @@ class _BengkelDetailSection extends StatelessWidget {
               ),
             ),
           ],
-          if (hasRouteInfo) ...[
-            SizedBox(height: 10.h),
-            Text(
-              "Estimasi: ${routeDuration ?? "-"} • ${routeDistance ?? "-"}",
-              style: TextStyle(
-                fontSize: 12.sp,
-                color: Colors.grey[800],
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-          SizedBox(height: 12.h),
+
+          SizedBox(height: 14.h),
+
+          // actions
           Row(
             children: [
               Expanded(
@@ -1316,7 +1520,7 @@ class _BengkelDetailSection extends StatelessWidget {
                     "Booking",
                     style: TextStyle(
                       fontSize: 13.sp,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
@@ -1326,7 +1530,7 @@ class _BengkelDetailSection extends StatelessWidget {
                 child: OutlinedButton.icon(
                   onPressed: onEmergency,
                   style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: _red.withOpacity(0.8), width: 1.4),
+                    side: BorderSide(color: _red.withOpacity(0.75), width: 1.4),
                     foregroundColor: _red,
                     padding: EdgeInsets.symmetric(vertical: 12.h),
                     shape: RoundedRectangleBorder(
@@ -1338,25 +1542,28 @@ class _BengkelDetailSection extends StatelessWidget {
                     "Darurat",
                     style: TextStyle(
                       fontSize: 13.sp,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
               ),
             ],
           ),
+
           SizedBox(height: 10.h),
+
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: loadingRoute ? null : onDirections,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.black87,
-                foregroundColor: Colors.white,
+                backgroundColor: _yellow,
+                foregroundColor: Colors.black87,
                 elevation: 0,
                 padding: EdgeInsets.symmetric(vertical: 12.h),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14.r),
+                  side: BorderSide(color: _red.withOpacity(0.16)),
                 ),
               ),
               icon: loadingRoute
@@ -1365,13 +1572,13 @@ class _BengkelDetailSection extends StatelessWidget {
                       height: 16.w,
                       child: const CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: Colors.black87,
                       ),
                     )
-                  : const Icon(Icons.directions_rounded, size: 18),
+                  : Icon(Icons.directions_rounded, size: 18, color: _red),
               label: Text(
                 routeActive ? "Hapus Petunjuk Arah" : "Petunjuk Arah",
-                style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w900),
+                style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w800),
               ),
             ),
           ),
