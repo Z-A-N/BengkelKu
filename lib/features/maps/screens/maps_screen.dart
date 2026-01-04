@@ -6,7 +6,6 @@ import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -69,9 +68,11 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
   Position? _myPos;
 
   // ===== Bottom panel (snap) =====
-  static const double _sheetInitial = 0.38; // carousel
-  static const double _sheetMid = 0.45; // ringkas
-  static const double _sheetMax = 0.55; // detail (maks)
+  // ✅ sheet awal dinaikin
+  static const double _sheetInitial = 0.38; // carousel (lebih tinggi)
+  static const double _sheetMid = 0.45; // detail ringkas
+  // ✅ max cuma 0.55
+  static const double _sheetMax = 0.55; // detail (ga keatasan)
 
   double _sheetExtent = _sheetInitial;
   final DraggableScrollableController _sheetController =
@@ -79,10 +80,8 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
 
   Timer? _snapTimer;
   bool _snapping = false;
-  double _lastSnapTarget = _sheetInitial;
 
   late final PageController _carouselController;
-  int _carouselIndex = 0;
 
   // ===== Selected bengkel =====
   Bengkel? _selected;
@@ -243,7 +242,6 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
             setState(() {
               _selected = b;
               _clearRoute();
-              _carouselIndex = max(0, idx);
             });
 
             if (_carouselController.hasClients && idx >= 0) {
@@ -314,8 +312,7 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
   void _scheduleSnap() {
     if (_snapping) return;
     _snapTimer?.cancel();
-
-    _snapTimer = Timer(const Duration(milliseconds: 120), () async {
+    _snapTimer = Timer(const Duration(milliseconds: 110), () async {
       if (!mounted) return;
       if (!_sheetController.isAttached) return;
 
@@ -324,15 +321,9 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
 
       _snapping = true;
       try {
-        // ✅ haptic hanya kalau pindah snap point (biar ga berisik)
-        if ((target - _lastSnapTarget).abs() > 0.02) {
-          HapticFeedback.lightImpact();
-          _lastSnapTarget = target;
-        }
-
         await _sheetController.animateTo(
           target,
-          duration: const Duration(milliseconds: 220),
+          duration: const Duration(milliseconds: 210),
           curve: Curves.easeOutCubic,
         );
       } catch (_) {
@@ -354,14 +345,9 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
 
   Future<void> _animateSheetTo(double size) async {
     try {
-      final t = size.clamp(_sheetInitial, _sheetMax);
-      if ((t - _lastSnapTarget).abs() > 0.02) {
-        HapticFeedback.lightImpact();
-        _lastSnapTarget = t;
-      }
       await _sheetController.animateTo(
-        t,
-        duration: const Duration(milliseconds: 220),
+        size.clamp(_sheetInitial, _sheetMax),
+        duration: const Duration(milliseconds: 210),
         curve: Curves.easeOutCubic,
       );
     } catch (_) {}
@@ -450,6 +436,7 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
         _routeToId = b.id;
       });
 
+      // naikkan detail (max 0.55 sesuai request)
       _animateSheetTo(_sheetMax);
 
       final bounds = _boundsFromLatLngList(decoded);
@@ -574,7 +561,6 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                 setState(() {
                   _selected = filtered.first;
                   _clearRoute();
-                  _carouselIndex = 0;
                 });
                 if (_carouselController.hasClients) {
                   _carouselController.jumpToPage(0);
@@ -598,8 +584,8 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
             }
           });
 
+          // ✅ mode carousel vs detail
           final bool showCarousel = _sheetExtent < (_sheetMid - 0.015);
-          final selected = _selected;
 
           return Stack(
             children: [
@@ -635,7 +621,7 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                         begin: Alignment.bottomCenter,
                         end: Alignment.center,
                         colors: [
-                          Colors.black.withOpacity(0.22),
+                          Colors.black.withOpacity(0.25),
                           Colors.transparent,
                         ],
                       ),
@@ -706,6 +692,7 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                   maxChildSize: _sheetMax,
                   builder: (context, scrollController) {
                     final safeBottom = MediaQuery.of(context).padding.bottom;
+                    final selected = _selected;
 
                     return Container(
                       decoration: BoxDecoration(
@@ -723,7 +710,6 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                       ),
                       child: ListView(
                         controller: scrollController,
-                        physics: const ClampingScrollPhysics(),
                         padding: EdgeInsets.fromLTRB(
                           0,
                           10.h,
@@ -731,31 +717,12 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                           16.h + safeBottom + 10.h,
                         ),
                         children: [
-                          // handle row + mini header detail
+                          // handle row + chevron down (ketika detail mode)
                           Padding(
                             padding: EdgeInsets.symmetric(horizontal: 16.w),
                             child: Row(
                               children: [
-                                // ✅ mini header saat detail biar "premium"
-                                Expanded(
-                                  child: AnimatedOpacity(
-                                    duration: const Duration(milliseconds: 160),
-                                    opacity: showCarousel ? 0.0 : 1.0,
-                                    child: IgnorePointer(
-                                      ignoring: showCarousel,
-                                      child: selected == null
-                                          ? const SizedBox.shrink()
-                                          : _MiniSelectedHeader(
-                                              nama: selected.nama,
-                                              buka: selected.buka,
-                                              rating: selected.rating,
-                                              distanceText: _prettyDistance(
-                                                selected,
-                                              ),
-                                            ),
-                                    ),
-                                  ),
-                                ),
+                                const Spacer(),
                                 Container(
                                   width: 44.w,
                                   height: 4.h,
@@ -764,7 +731,8 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                                     borderRadius: BorderRadius.circular(999),
                                   ),
                                 ),
-                                // chevron down
+                                const Spacer(),
+                                // ✅ chevron-down buat balik ke carousel
                                 AnimatedOpacity(
                                   duration: const Duration(milliseconds: 160),
                                   opacity: showCarousel ? 0.0 : 1.0,
@@ -790,7 +758,7 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                           ),
                           SizedBox(height: 10.h),
 
-                          // header "Bengkel terdekat" + hasil: hanya saat carousel
+                          // ✅ header "Bengkel terdekat" + hasil: tampil HANYA saat carousel
                           AnimatedCrossFade(
                             duration: const Duration(milliseconds: 180),
                             crossFadeState: showCarousel
@@ -859,7 +827,7 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                               firstChild: Column(
                                 children: [
                                   SizedBox(
-                                    height: 158.h,
+                                    height: 150.h,
                                     child: PageView.builder(
                                       controller: _carouselController,
                                       itemCount: filtered.length,
@@ -868,7 +836,6 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                                         setState(() {
                                           _selected = b;
                                           _clearRoute();
-                                          _carouselIndex = i;
                                         });
 
                                         if (_mapController.isCompleted) {
@@ -902,7 +869,6 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                                               setState(() {
                                                 _selected = b;
                                                 _clearRoute();
-                                                _carouselIndex = i;
                                               });
                                               _animateSheetTo(_sheetMid);
 
@@ -927,37 +893,6 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                                       },
                                     ),
                                   ),
-
-                                  // ✅ dots + 1/12 biar informatif
-                                  Padding(
-                                    padding: EdgeInsets.fromLTRB(
-                                      16.w,
-                                      10.h,
-                                      16.w,
-                                      0,
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        _DotsIndicator(
-                                          count: filtered.length,
-                                          index: _carouselIndex.clamp(
-                                            0,
-                                            max(0, filtered.length - 1),
-                                          ),
-                                        ),
-                                        const Spacer(),
-                                        Text(
-                                          "${(_carouselIndex + 1).clamp(1, max(1, filtered.length))}/${max(1, filtered.length)}",
-                                          style: TextStyle(
-                                            fontSize: 11.sp,
-                                            color: Colors.grey[700],
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-
                                   Padding(
                                     padding: EdgeInsets.fromLTRB(
                                       16.w,
@@ -1004,7 +939,7 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                                                 _goEmergency(selected),
                                             onDirections: _drawRouteToSelected,
                                           ),
-                                          SizedBox(height: 10.h),
+                                          SizedBox(height: 8.h),
                                           Text(
                                             "Tarik ke bawah untuk ganti bengkel",
                                             style: TextStyle(
@@ -1075,114 +1010,6 @@ class _CircleBtn extends StatelessWidget {
   }
 }
 
-class _MiniSelectedHeader extends StatelessWidget {
-  final String nama;
-  final bool buka;
-  final double rating;
-  final String distanceText;
-
-  const _MiniSelectedHeader({
-    required this.nama,
-    required this.buka,
-    required this.rating,
-    required this.distanceText,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Flexible(
-          child: Text(
-            nama,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12.sp,
-              fontWeight: FontWeight.w900,
-              color: Colors.black87,
-            ),
-          ),
-        ),
-        SizedBox(width: 8.w),
-        _Chip(
-          text: buka ? "Buka" : "Tutup",
-          bg: buka ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
-          fg: buka ? const Color(0xFF2E7D32) : const Color(0xFFB71C1C),
-        ),
-        SizedBox(width: 6.w),
-        _Chip(
-          text: "⭐ ${rating.toStringAsFixed(1)}",
-          bg: const Color(0xFFFFF3CD),
-          fg: Colors.black87,
-        ),
-        SizedBox(width: 6.w),
-        _Chip(
-          text: distanceText,
-          bg: Colors.grey.shade100,
-          fg: Colors.grey.shade800,
-        ),
-      ],
-    );
-  }
-}
-
-class _Chip extends StatelessWidget {
-  final String text;
-  final Color bg;
-  final Color fg;
-
-  const _Chip({required this.text, required this.bg, required this.fg});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 10.sp,
-          fontWeight: FontWeight.w900,
-          color: fg,
-        ),
-      ),
-    );
-  }
-}
-
-class _DotsIndicator extends StatelessWidget {
-  final int count;
-  final int index;
-
-  const _DotsIndicator({required this.count, required this.index});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = count.clamp(1, 12); // biar ga kepanjangan
-    final idx = index.clamp(0, max(0, c - 1));
-
-    return Row(
-      children: List.generate(c, (i) {
-        final active = i == idx;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          margin: EdgeInsets.only(right: 6.w),
-          width: active ? 14.w : 7.w,
-          height: 7.w,
-          decoration: BoxDecoration(
-            color: active ? const Color(0xFFDB0C0C) : Colors.grey.shade300,
-            borderRadius: BorderRadius.circular(999),
-          ),
-        );
-      }),
-    );
-  }
-}
-
 class _BengkelCarouselCard extends StatelessWidget {
   final Bengkel bengkel;
   final String distanceText;
@@ -1200,154 +1027,132 @@ class _BengkelCarouselCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedScale(
-      duration: const Duration(milliseconds: 160),
-      scale: active ? 1.0 : 0.97,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18.r),
-          onTap: onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            padding: EdgeInsets.all(12.w),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18.r),
-              border: Border.all(
-                color: active ? _red.withOpacity(0.60) : Colors.transparent,
-                width: 1.3,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(active ? 0.12 : 0.06),
-                  blurRadius: active ? 16 : 10,
-                  offset: const Offset(0, 6),
-                ),
-              ],
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18.r),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: EdgeInsets.all(12.w),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18.r),
+            border: Border.all(
+              color: active ? _red.withOpacity(0.55) : Colors.transparent,
+              width: 1.2,
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 42.w,
-                      height: 42.w,
-                      decoration: BoxDecoration(
-                        color: _red.withOpacity(0.10),
-                        borderRadius: BorderRadius.circular(14.r),
-                      ),
-                      child: Icon(
-                        Icons.store_mall_directory_rounded,
-                        color: _red,
-                        size: 22.sp,
-                      ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(active ? 0.10 : 0.06),
+                blurRadius: active ? 14 : 10,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 42.w,
+                    height: 42.w,
+                    decoration: BoxDecoration(
+                      color: _red.withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(14.r),
                     ),
-                    SizedBox(width: 10.w),
-                    Expanded(
-                      child: Text(
-                        bengkel.nama,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13.sp,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
+                    child: Icon(
+                      Icons.store_mall_directory_rounded,
+                      color: _red,
+                      size: 22.sp,
                     ),
-                  ],
-                ),
-                SizedBox(height: 8.h),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.place_rounded,
-                      size: 14.sp,
-                      color: Colors.grey[600],
-                    ),
-                    SizedBox(width: 4.w),
-                    Expanded(
-                      child: Text(
-                        bengkel.alamat,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11.sp,
-                          color: Colors.grey[700],
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 8.h),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.star_rounded,
-                      color: Colors.orange,
-                      size: 16,
-                    ),
-                    SizedBox(width: 4.w),
-                    Text(
-                      bengkel.rating.toStringAsFixed(1),
+                  ),
+                  SizedBox(width: 10.w),
+                  Expanded(
+                    child: Text(
+                      bengkel.nama,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 11.sp,
+                        fontSize: 13.sp,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
-                    SizedBox(width: 10.w),
-                    Icon(
-                      Icons.near_me_rounded,
-                      size: 14.sp,
-                      color: Colors.grey[600],
-                    ),
-                    SizedBox(width: 4.w),
-                    Text(
-                      distanceText,
-                      style: TextStyle(
-                        fontSize: 11.sp,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.grey[700],
-                      ),
-                    ),
-                    const Spacer(),
-                    Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 8.w,
-                        vertical: 4.h,
-                      ),
-                      decoration: BoxDecoration(
-                        color: bengkel.buka
-                            ? const Color(0xFFE8F5E9)
-                            : const Color(0xFFFFEBEE),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        bengkel.buka ? "Buka" : "Tutup",
-                        style: TextStyle(
-                          fontSize: 10.sp,
-                          fontWeight: FontWeight.w900,
-                          color: bengkel.buka
-                              ? const Color(0xFF2E7D32)
-                              : const Color(0xFFB71C1C),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 6.h),
-                Text(
-                  active ? "Tarik ke atas untuk detail" : "Tap untuk pilih",
-                  style: TextStyle(
-                    fontSize: 10.sp,
-                    color: Colors.grey[600],
-                    fontWeight: FontWeight.w700,
                   ),
+                ],
+              ),
+              SizedBox(height: 8.h),
+              Text(
+                bengkel.alamat,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11.sp,
+                  color: Colors.grey[700],
+                  fontWeight: FontWeight.w600,
                 ),
-              ],
-            ),
+              ),
+              SizedBox(height: 8.h),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.star_rounded,
+                    color: Colors.orange,
+                    size: 16,
+                  ),
+                  SizedBox(width: 4.w),
+                  Text(
+                    bengkel.rating.toStringAsFixed(1),
+                    style: TextStyle(
+                      fontSize: 11.sp,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  SizedBox(width: 10.w),
+                  Text(
+                    distanceText,
+                    style: TextStyle(
+                      fontSize: 11.sp,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 8.w,
+                      vertical: 4.h,
+                    ),
+                    decoration: BoxDecoration(
+                      color: bengkel.buka
+                          ? const Color(0xFFE8F5E9)
+                          : const Color(0xFFFFEBEE),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      bengkel.buka ? "Buka" : "Tutup",
+                      style: TextStyle(
+                        fontSize: 10.sp,
+                        fontWeight: FontWeight.w900,
+                        color: bengkel.buka
+                            ? const Color(0xFF2E7D32)
+                            : const Color(0xFFB71C1C),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 6.h),
+              Text(
+                active ? "Tarik ke atas untuk detail" : "Tap untuk pilih",
+                style: TextStyle(
+                  fontSize: 10.sp,
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ),
         ),
       ),
