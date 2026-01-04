@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
+
 import '../auth/screens/login_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -27,6 +30,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   late final Animation<double> _fadeAnimation;
 
   bool _didPrecache = false;
+
+  // ✅ biar request izin ga keulang-ulang
+  bool _permissionRequestedOnce = false;
 
   static const List<Map<String, String>> onboardingData = [
     {
@@ -69,13 +75,17 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     );
 
     _startAutoSlide();
+
+    // ✅ langsung munculin dialog izin dari OS (tanpa popup custom)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _requestPermissionsOnce();
+    });
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    // Precache semua gambar onboarding biar nggak blank/kedip saat pertama tampil
     if (!_didPrecache) {
       _didPrecache = true;
       for (final item in onboardingData) {
@@ -89,7 +99,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   void _startAutoSlide() {
     _autoSlideTimer?.cancel();
-
     _autoSlideTimer = Timer.periodic(_autoSlideEvery, (_) {
       _autoSlideTick();
     });
@@ -103,7 +112,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     try {
       final nextPage = _currentPage + 1;
 
-      // Kamu minta: kalau sudah last page, auto-slide balik ke awal (tetap dipertahankan)
+      // auto balik ke awal kalau udah last page
       if (nextPage >= onboardingData.length) {
         await _fadeController.forward();
         if (!mounted) return;
@@ -124,7 +133,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         );
       }
     } catch (_) {
-      // Bisa terjadi kalau widget keburu dispose saat animasi berjalan
+      // aman
     } finally {
       _isAnimating = false;
     }
@@ -143,9 +152,52 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     super.dispose();
   }
 
+  // =========================
+  // PERMISSIONS (NO CUSTOM UI, NO SNACKBAR)
+  // =========================
+
+  Future<void> _requestPermissionsOnce() async {
+    if (_permissionRequestedOnce) return;
+    _permissionRequestedOnce = true;
+
+    await _requestNotificationPermission();
+    await _requestLocationPermission();
+  }
+
+  Future<void> _requestNotificationPermission() async {
+    // Android 13+ / iOS
+    final status = await Permission.notification.status;
+
+    // kalau sudah granted / permanently denied, jangan ganggu
+    if (status.isGranted || status.isPermanentlyDenied) return;
+
+    await Permission.notification.request();
+  }
+
+  Future<void> _requestLocationPermission() async {
+    // kalau GPS mati, kita ga buka settings otomatis (biar ga ada popup tambahan)
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+
+    var perm = await Geolocator.checkPermission();
+
+    if (perm == LocationPermission.denied) {
+      perm = await Geolocator.requestPermission(); // ini native dialog OS
+    }
+
+    // deniedForever -> jangan paksa buka settings (sesuai request kamu)
+  }
+
+  // =========================
+  // NAV
+  // =========================
+
   void _navigateToLogin() {
     _stopAutoSlide();
     if (!mounted) return;
+
+    // optional: pastiin pernah minta izin (kalau user skip cepat)
+    _requestPermissionsOnce();
 
     Navigator.pushReplacement(
       context,
@@ -172,17 +224,16 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
       await _fadeController.reverse();
     } catch (_) {
-      // amanin kalau dispose di tengah animasi
+      // aman
     } finally {
       _isAnimating = false;
-      // kamu tetap mau auto-loop, jadi kita nyalain lagi
       _startAutoSlide();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final height = MediaQuery.sizeOf(context).height; // lebih stabil
+    final height = MediaQuery.sizeOf(context).height;
     final isSmall = height < 700;
 
     return Scaffold(
@@ -276,7 +327,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                     ),
                   ),
 
-                  // Dots indikator (kalau belum slide terakhir)
                   if (!_isLastPage) ...[
                     Padding(
                       padding: EdgeInsets.only(bottom: 15.h),
@@ -302,7 +352,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                     SizedBox(height: 25.h),
                   ],
 
-                  // Tombol CTA (hanya slide terakhir)
                   if (_isLastPage)
                     Padding(
                       padding: EdgeInsets.fromLTRB(80.w, 0, 80.w, 45.h),
@@ -332,7 +381,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               ),
             ),
 
-            // Tombol Lewati (kalau belum slide terakhir)
             if (!_isLastPage)
               Positioned(
                 right: 20.w,
