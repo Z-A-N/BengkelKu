@@ -204,6 +204,19 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
     await _getAndMoveToMyLocation();
   }
 
+  // ✅ fokus ke bengkel (mirip “lokasi saya” tapi target bengkel)
+  Future<void> _focusBengkelOnMap(Bengkel b, {double zoom = 15}) async {
+    if (b.lat == 0 && b.lng == 0) return;
+    if (!_mapController.isCompleted) return;
+
+    final c = await _mapController.future;
+    await c.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: LatLng(b.lat, b.lng), zoom: zoom),
+      ),
+    );
+  }
+
   // ===== Distance =====
   double? _distanceMetersTo(Bengkel b) {
     final me = _myPos;
@@ -256,10 +269,7 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
 
             _animateSheetTo(_sheetMid);
 
-            if (_mapController.isCompleted) {
-              final c = await _mapController.future;
-              await c.animateCamera(CameraUpdate.newLatLng(pos));
-            }
+            await _focusBengkelOnMap(b, zoom: 15);
           },
         ),
       );
@@ -320,7 +330,7 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
 
       final target = _snapTarget(_sheetExtent);
 
-      // ✅ threshold lebih longgar biar ga “nempel robot”
+      // threshold lebih longgar biar ga “nempel robot”
       if ((target - _sheetExtent).abs() < 0.03) return;
 
       _snapping = true;
@@ -588,13 +598,13 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                 }
               });
 
-              // ✅ sheet height dalam pixel → buat “map mengecil”
+              // sheet height dalam pixel → buat “map mengecil”
               final sheetPx = (screenH * _sheetExtent).clamp(
                 screenH * _sheetInitial,
                 screenH * _sheetMax,
               );
 
-              // ✅ mode carousel vs detail
+              // mode carousel vs detail
               final bool showCarousel = _sheetExtent < (_sheetMid - 0.015);
 
               return Stack(
@@ -606,7 +616,7 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                     top: 0,
                     left: 0,
                     right: 0,
-                    bottom: sheetPx, // kuncinya!
+                    bottom: sheetPx,
                     child: ClipRRect(
                       borderRadius: BorderRadius.vertical(
                         bottom: Radius.circular(22.r),
@@ -715,7 +725,6 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                   Positioned.fill(
                     child: NotificationListener<DraggableScrollableNotification>(
                       onNotification: (n) {
-                        // update extent → map ikut resize
                         setState(() => _sheetExtent = n.extent);
                         if (!_snapping) _scheduleSnap();
                         return false;
@@ -761,7 +770,7 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                                   16.h + safeBottom + 10.h,
                                 ),
                                 children: [
-                                  // handle row + chevron down (ketika detail mode)
+                                  // handle row + chevron down
                                   Padding(
                                     padding: EdgeInsets.symmetric(
                                       horizontal: 16.w,
@@ -810,7 +819,9 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                                       ],
                                     ),
                                   ),
-                                  SizedBox(height: 10.h),
+
+                                  // ✅ lebih dekat ke “topi drag”
+                                  SizedBox(height: 6.h),
 
                                   // header (hanya saat carousel)
                                   AnimatedCrossFade(
@@ -865,7 +876,9 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                                     ),
                                     secondChild: const SizedBox.shrink(),
                                   ),
-                                  SizedBox(height: showCarousel ? 10.h : 6.h),
+
+                                  // ✅ rapetin lagi biar “google-ish”
+                                  SizedBox(height: showCarousel ? 6.h : 4.h),
 
                                   if (filtered.isEmpty)
                                     Padding(
@@ -903,23 +916,10 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                                                   _selected = b;
                                                   _clearRoute();
                                                 });
-
-                                                if (_mapController
-                                                    .isCompleted) {
-                                                  final c = await _mapController
-                                                      .future;
-                                                  await c.animateCamera(
-                                                    CameraUpdate.newCameraPosition(
-                                                      CameraPosition(
-                                                        target: LatLng(
-                                                          b.lat,
-                                                          b.lng,
-                                                        ),
-                                                        zoom: 15,
-                                                      ),
-                                                    ),
-                                                  );
-                                                }
+                                                await _focusBengkelOnMap(
+                                                  b,
+                                                  zoom: 15,
+                                                );
                                               },
                                               itemBuilder: (context, i) {
                                                 final b = filtered[i];
@@ -947,24 +947,10 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                                                       _animateSheetTo(
                                                         _sheetMid,
                                                       );
-
-                                                      if (_mapController
-                                                          .isCompleted) {
-                                                        final c =
-                                                            await _mapController
-                                                                .future;
-                                                        await c.animateCamera(
-                                                          CameraUpdate.newCameraPosition(
-                                                            CameraPosition(
-                                                              target: LatLng(
-                                                                b.lat,
-                                                                b.lng,
-                                                              ),
-                                                              zoom: 15,
-                                                            ),
-                                                          ),
-                                                        );
-                                                      }
+                                                      await _focusBengkelOnMap(
+                                                        b,
+                                                        zoom: 15,
+                                                      );
                                                     },
                                                   ),
                                                 );
@@ -1022,6 +1008,13 @@ class _MapsScreenState extends State<MapsScreen> with WidgetsBindingObserver {
                                                         _goEmergency(selected),
                                                     onDirections:
                                                         _drawRouteToSelected,
+
+                                                    // ✅ klik card/info → fokus ke lokasi bengkel
+                                                    onFocusMap: () =>
+                                                        _focusBengkelOnMap(
+                                                          selected,
+                                                          zoom: 15,
+                                                        ),
                                                   ),
                                                   SizedBox(height: 8.h),
                                                   Text(
@@ -1229,7 +1222,6 @@ class _BengkelCarouselCard extends StatelessWidget {
                   ],
                 ),
                 SizedBox(height: 10.h),
-
                 Row(
                   children: [
                     const Icon(
@@ -1313,6 +1305,9 @@ class _BengkelDetailSection extends StatelessWidget {
   final VoidCallback onEmergency;
   final VoidCallback onDirections;
 
+  // ✅ klik info card → fokus map
+  final VoidCallback onFocusMap;
+
   const _BengkelDetailSection({
     required this.bengkel,
     required this.distanceText,
@@ -1323,6 +1318,7 @@ class _BengkelDetailSection extends StatelessWidget {
     required this.onBooking,
     required this.onEmergency,
     required this.onDirections,
+    required this.onFocusMap,
   });
 
   static const Color _red = Color(0xFFDB0C0C);
@@ -1387,120 +1383,160 @@ class _BengkelDetailSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // title + open/close
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  bengkel.nama,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 15.sp,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              statusChip(),
-            ],
-          ),
-          SizedBox(height: 8.h),
+          // ✅ AREA INFO: bisa ditap untuk fokus map
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onFocusMap,
+              borderRadius: BorderRadius.circular(14.r),
+              child: Padding(
+                padding: EdgeInsets.only(bottom: 12.h),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // title + open/close
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            bengkel.nama,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 15.sp,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        statusChip(),
+                      ],
+                    ),
+                    SizedBox(height: 8.h),
 
-          // alamat
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.place_rounded, size: 16.sp, color: Colors.grey[700]),
-              SizedBox(width: 6.w),
-              Expanded(
-                child: Text(
-                  bengkel.alamat,
-                  style: TextStyle(
-                    fontSize: 12.sp,
-                    color: Colors.grey[800],
-                    fontWeight: FontWeight.w600,
-                    height: 1.25,
-                  ),
-                ),
-              ),
-            ],
-          ),
+                    // alamat
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.place_rounded,
+                          size: 16.sp,
+                          color: Colors.grey[700],
+                        ),
+                        SizedBox(width: 6.w),
+                        Expanded(
+                          child: Text(
+                            bengkel.alamat,
+                            style: TextStyle(
+                              fontSize: 12.sp,
+                              color: Colors.grey[800],
+                              fontWeight: FontWeight.w600,
+                              height: 1.25,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
 
-          // meta row (rating + distance)
-          SizedBox(height: 10.h),
-          Row(
-            children: [
-              const Icon(Icons.star_rounded, color: Colors.orange, size: 18),
-              SizedBox(width: 4.w),
-              Text(
-                bengkel.rating.toStringAsFixed(1),
-                style: TextStyle(
-                  fontSize: 12.sp,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.black87,
-                ),
-              ),
-              SizedBox(width: 10.w),
-              Icon(Icons.near_me_rounded, size: 16.sp, color: Colors.grey[700]),
-              SizedBox(width: 4.w),
-              Text(
-                distanceText,
-                style: TextStyle(
-                  fontSize: 12.sp,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.grey[800],
-                ),
-              ),
-            ],
-          ),
+                    // meta row (rating + distance)
+                    SizedBox(height: 10.h),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.star_rounded,
+                          color: Colors.orange,
+                          size: 18,
+                        ),
+                        SizedBox(width: 4.w),
+                        Text(
+                          bengkel.rating.toStringAsFixed(1),
+                          style: TextStyle(
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        SizedBox(width: 10.w),
+                        Icon(
+                          Icons.near_me_rounded,
+                          size: 16.sp,
+                          color: Colors.grey[700],
+                        ),
+                        SizedBox(width: 4.w),
+                        Text(
+                          distanceText,
+                          style: TextStyle(
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.grey[800],
+                          ),
+                        ),
+                      ],
+                    ),
 
-          // route info hanya kalau ada
-          if (hasRouteInfo) ...[
-            SizedBox(height: 10.h),
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 8.h),
-              decoration: BoxDecoration(
-                color: _yellow.withOpacity(0.22),
-                borderRadius: BorderRadius.circular(12.r),
-                border: Border.all(color: _red.withOpacity(0.10)),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.route_rounded, size: 18.sp, color: _red),
-                  SizedBox(width: 8.w),
-                  Expanded(
-                    child: Text(
-                      "${routeDuration ?? "-"} • ${routeDistance ?? "-"}",
+                    // route info kalau ada
+                    if (hasRouteInfo) ...[
+                      SizedBox(height: 10.h),
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 10.w,
+                          vertical: 8.h,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _yellow.withOpacity(0.22),
+                          borderRadius: BorderRadius.circular(12.r),
+                          border: Border.all(color: _red.withOpacity(0.10)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.route_rounded, size: 18.sp, color: _red),
+                            SizedBox(width: 8.w),
+                            Expanded(
+                              child: Text(
+                                "${routeDuration ?? "-"} • ${routeDistance ?? "-"}",
+                                style: TextStyle(
+                                  fontSize: 12.sp,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
+                    if ((bengkel.deskripsi).trim().isNotEmpty) ...[
+                      SizedBox(height: 12.h),
+                      Text(
+                        bengkel.deskripsi,
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12.sp,
+                          color: Colors.grey[700],
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+
+                    // hint kecil (optional, bisa dihapus kalau gak mau)
+                    SizedBox(height: 8.h),
+                    Text(
+                      "Ketuk kartu untuk fokus ke lokasi",
                       style: TextStyle(
-                        fontSize: 12.sp,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.black87,
+                        fontSize: 11.sp,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ],
+          ),
 
-          if ((bengkel.deskripsi).trim().isNotEmpty) ...[
-            SizedBox(height: 12.h),
-            Text(
-              bengkel.deskripsi,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12.sp,
-                color: Colors.grey[700],
-                height: 1.35,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-
-          SizedBox(height: 14.h),
-
-          // actions
+          // tombol-tombol (tidak ikut InkWell)
           Row(
             children: [
               Expanded(
@@ -1549,9 +1585,7 @@ class _BengkelDetailSection extends StatelessWidget {
               ),
             ],
           ),
-
           SizedBox(height: 10.h),
-
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
